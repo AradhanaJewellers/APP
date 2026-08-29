@@ -1,5 +1,5 @@
-import { type RateSnapshot } from '@/services/rates';
-import { type Product, type Product3DConfig } from '@/services/products';
+import type { RateSnapshot } from '@/services/rates';
+import type { Product } from '@/services/products';
 
 /**
  * Shared price estimation service.

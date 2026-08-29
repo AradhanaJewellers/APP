@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   GestureResponderEvent,
-  Image,
   StyleSheet,
   Text,
   TouchableWithoutFeedback,
@@ -12,10 +11,10 @@ import { GLView, ExpoWebGLRenderingContext } from 'expo-gl';
 import { Renderer } from 'expo-three';
 import * as THREE from 'three';
 
-// GLTFLoader and OrbitControls — expo-three + three ship without RN type mappings
-// eslint-disable-next-line @typescript-eslint/no-var-requires
+// GLTFLoader and OrbitControls — three/examples ships without RN type mappings
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { GLTFLoader } = require('three/examples/jsm/loaders/GLTFLoader');
-// eslint-disable-next-line @typescript-eslint/no-var-requires
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { OrbitControls } = require('three/examples/jsm/controls/OrbitControls');
 
 import type { Product, MaterialVariant, CameraPreset } from '@/services/products';

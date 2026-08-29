@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
-import { Image, Linking, Platform, Pressable, ScrollView, Share, StyleSheet, View } from 'react-native';
+import { Image, Linking, Pressable, ScrollView, Share, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -7,7 +7,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing, BorderRadius, Shadow } from '@/constants/theme';
 import { fetchRateSnapshot, formatInr, type RateSnapshot } from '@/services/rates';
-import { byCategory, getById, imageFor, is3DEnabled, type Product, type MaterialVariant } from '@/services/products';
+import { byCategory, getById, imageFor, is3DEnabled, type MaterialVariant } from '@/services/products';
 import { estimate3DProduct } from '@/services/pricing';
 import { MASTER } from '@/config/master';
 import { useWishlist } from '@/store/wishlist';
@@ -46,6 +46,10 @@ export default function ProductScreen() {
   const has3D = product ? is3DEnabled(product) : false;
   const show3D = has3D && ViewerComponent && !viewerError;
 
+  // Derive selected variant/purity from product (no setState in effect needed)
+  const effectiveVariant = selectedVariant ?? product?.threeD?.materialVariants?.[0] ?? null;
+  const effectiveKarat = selectedKarat;
+
   useEffect(() => {
     let cancelled = false;
     fetchRateSnapshot()
@@ -55,21 +59,12 @@ export default function ProductScreen() {
   }, []);
 
   // Initialize variant selection from product defaults
-  useEffect(() => {
-    if (product?.threeD?.materialVariants?.length) {
-      setSelectedVariant(product.threeD.materialVariants[0]);
-    }
-    if (product?.threeD?.purityOptions?.length) {
-      const defaultPurity = product.threeD.purityOptions[0];
-      setSelectedKarat(defaultPurity.karat as 18 | 22);
-    }
-  }, [product]);
 
   // Compute price using shared service
   const priceBreakdown = useMemo(() => {
     if (!product) return null;
-    return estimate3DProduct(product, selectedKarat, snap);
-  }, [product, selectedKarat, snap]);
+    return estimate3DProduct(product, effectiveKarat, snap);
+  }, [product, effectiveKarat, snap]);
 
   // Legacy estimate for 2D products
   const legacyEstimate =
@@ -106,11 +101,11 @@ export default function ProductScreen() {
       `\u2022 Product ID: ${product.id}`,
     ];
 
-    if (selectedVariant) {
-      parts.push(`\u2022 Metal: ${selectedVariant.label}`);
+    if (effectiveVariant) {
+      parts.push(`\u2022 Metal: ${effectiveVariant.label}`);
     }
-    if (selectedKarat) {
-      parts.push(`\u2022 Purity: ${selectedKarat}K`);
+    if (effectiveKarat) {
+      parts.push(`\u2022 Purity: ${effectiveKarat}K`);
     }
     if (product.threeD?.totalWeight) {
       parts.push(`\u2022 Weight: ${product.threeD.totalWeight}g`);
@@ -161,7 +156,7 @@ export default function ProductScreen() {
             <View style={[styles.viewerCard, Shadow.md]}>
               <ViewerComponent
                 product={product}
-                activeVariant={selectedVariant}
+                activeVariant={effectiveVariant}
                 onLoaded={() => setViewerLoaded(true)}
                 onError={() => setViewerError(true)}
               />
@@ -214,9 +209,9 @@ export default function ProductScreen() {
 
             {/* Tags */}
             <View style={styles.tagRow}>
-              {(selectedKarat || product.karat) && (
+              {(effectiveKarat || product.karat) && (
                 <View style={styles.tag}>
-                  <ThemedText style={styles.tagText}>{selectedKarat || product.karat}K Gold</ThemedText>
+                  <ThemedText style={styles.tagText}>{effectiveKarat || product.karat}K Gold</ThemedText>
                 </View>
               )}
               {(product.threeD?.totalWeight || product.weight) && (
@@ -226,7 +221,7 @@ export default function ProductScreen() {
               )}
               <View style={[styles.tag, styles.tagHallmark]}>
                 <ThemedText style={[styles.tagText, styles.tagHallmarkText]}>
-                  {selectedKarat === 18 ? '750' : '916'} Hallmarked
+                  {effectiveKarat === 18 ? '750' : '916'} Hallmarked
                 </ThemedText>
               </View>
               {has3D && (
@@ -251,13 +246,13 @@ export default function ProductScreen() {
                         onPress={() => setSelectedVariant(v)}
                         style={[
                           styles.switcherChip,
-                          selectedVariant?.id === v.id && styles.switcherChipActive,
+                          effectiveVariant?.id === v.id && styles.switcherChipActive,
                         ]}
                         accessibilityLabel={v.label}>
                         <View style={[styles.colorDot, { backgroundColor: v.hexAccent || '#D4A843' }]} />
                         <ThemedText style={[
                           styles.switcherChipText,
-                          selectedVariant?.id === v.id && styles.switcherChipTextActive,
+                          effectiveVariant?.id === v.id && styles.switcherChipTextActive,
                         ]}>{v.label}</ThemedText>
                       </Pressable>
                     ))}
@@ -276,12 +271,12 @@ export default function ProductScreen() {
                         onPress={() => setSelectedKarat(p.karat as 18 | 22)}
                         style={[
                           styles.switcherChip,
-                          selectedKarat === p.karat && styles.switcherChipActive,
+                          effectiveKarat === p.karat && styles.switcherChipActive,
                         ]}
                         accessibilityLabel={p.label}>
                         <ThemedText style={[
                           styles.switcherChipText,
-                          selectedKarat === p.karat && styles.switcherChipTextActive,
+                          effectiveKarat === p.karat && styles.switcherChipTextActive,
                         ]}>{p.label}</ThemedText>
                       </Pressable>
                     ))}

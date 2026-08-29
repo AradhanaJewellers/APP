@@ -20,7 +20,7 @@ import { ThemedView } from '@/components/themed-view';
 import { Spacing, BorderRadius, Shadow } from '@/constants/theme';
 import { useLiveRates } from '@/hooks/use-live-rates';
 import { formatInr } from '@/services/rates';
-import { byCategory, categories, imageFor, products, heroProducts, is3DEnabled, getById } from '@/services/products';
+import { byCategory, categories, imageFor, products, heroProducts } from '@/services/products';
 import { MASTER, MAPS_URL } from '@/config/master';
 import { useCart } from '@/store/cart';
 import { useLang, type Lang } from '@/store/lang';
