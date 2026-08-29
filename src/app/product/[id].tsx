@@ -354,6 +354,12 @@ export default function ProductScreen() {
               <ThemedText style={styles.actionBtnPrimaryText}>Ask About This</ThemedText>
             </Pressable>
           </View>
+          {has3D && product.threeD?.arEligible && (
+            <Pressable onPress={() => router.push('/ar-try-on')} style={[styles.arBtn, Shadow.sm]} accessibilityLabel="Try in AR">
+              <ThemedText style={styles.arBtnText}>{'\uD83D\uDCF7'} Try in AR</ThemedText>
+              <ThemedText style={styles.arBtnSub}>Point camera at your hand</ThemedText>
+            </Pressable>
+          )}
           <View style={styles.actionRowSecondary}>
             <Pressable onPress={share} style={[styles.actionBtnSecondary]} accessibilityLabel="Share">
               <ThemedText style={styles.actionBtnSecondaryIcon}>{'\u2197'}</ThemedText>
@@ -538,6 +544,9 @@ const styles = StyleSheet.create({
   actionBtnPrimary: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#23519D', borderRadius: BorderRadius.md, paddingVertical: 14 },
   actionBtnPrimaryIcon: { fontSize: 16, color: '#FFFFFF' },
   actionBtnPrimaryText: { fontSize: 15, fontWeight: '700', color: '#FFFFFF' },
+  arBtn: { marginHorizontal: 16, alignItems: 'center', backgroundColor: '#4338CA', borderRadius: BorderRadius.md, paddingVertical: 12 },
+  arBtnText: { fontSize: 14, fontWeight: '700', color: '#FFFFFF' },
+  arBtnSub: { fontSize: 10, color: 'rgba(255,255,255,0.7)', marginTop: 2 },
   actionRowSecondary: { marginHorizontal: 16, flexDirection: 'row', gap: 10 },
   actionBtnSecondary: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: '#FFFFFF', borderRadius: BorderRadius.md, paddingVertical: 12, borderWidth: 1, borderColor: '#E5E1D8' },
   actionBtnSecondaryIcon: { fontSize: 14, color: '#1A1A2E' },
