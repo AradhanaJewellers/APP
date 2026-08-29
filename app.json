@@ -12,16 +12,12 @@
     },
     "android": {
       "package": "com.aradhanajewellers.app",
+      "versionCode": 4,
       "adaptiveIcon": {
         "backgroundColor": "#23519D",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
-      },
-      "navigationBarColor": "#23519D",
-      "navigationBar": {
-        "barStyle": "light-content",
-        "backgroundColor": "#23519D"
       },
       "predictiveBackGestureEnabled": false
     },

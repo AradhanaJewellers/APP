@@ -1,6 +1,5 @@
 import { useRef, useState } from 'react';
 import {
-  Animated,
   Dimensions,
   FlatList,
   Image,
@@ -25,6 +24,7 @@ import { byCategory, categories, imageFor, products } from '@/services/products'
 import { MASTER, MAPS_URL } from '@/config/master';
 import { useCart } from '@/store/cart';
 import { useLang, type Lang } from '@/store/lang';
+import Category3DCarousel from '@/components/category-3d';
 
 const heroVideoSrc = require('@/assets/aradhana/hero_video.mp4');
 const heroAdSrc = require('@/assets/aradhana/hero_ad.mp4');
@@ -65,8 +65,6 @@ function SectionHeader({ title, subtitle, onSeeAll }: { title: string; subtitle?
     </View>
   );
 }
-
-import Category3DCarousel from '@/components/category-3d';
 
 function HeroSlider() {
   const [active, setActive] = useState(0);

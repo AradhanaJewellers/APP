@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { StyleSheet, View, useWindowDimensions, Image, Pressable, ScrollView } from 'react-native';
+import { StyleSheet, View, useWindowDimensions, Image, Pressable } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
