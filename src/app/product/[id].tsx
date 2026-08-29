@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Image, Linking, Pressable, ScrollView, Share, StyleSheet, View } from 'react-native';
+import { useEffect, useState, useMemo } from 'react';
+import { Image, Linking, Platform, Pressable, ScrollView, Share, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -7,9 +7,28 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing, BorderRadius, Shadow } from '@/constants/theme';
 import { fetchRateSnapshot, formatInr, type RateSnapshot } from '@/services/rates';
-import { byCategory, getById, imageFor } from '@/services/products';
+import { byCategory, getById, imageFor, is3DEnabled, type Product, type MaterialVariant } from '@/services/products';
+import { estimate3DProduct } from '@/services/pricing';
 import { MASTER } from '@/config/master';
 import { useWishlist } from '@/store/wishlist';
+
+// Lazy-load 3D viewer to avoid bundling Three.js on 2D-only screens
+const ViewerComponent: React.ComponentType<any> | null = (() => {
+  try {
+    return require('@/components/three/JewelleryViewer').default;
+  } catch {
+    return null;
+  }
+})();
+
+const HOTSPOTS = [
+  { id: 'hallmark', label: 'Hallmark', icon: '\u2713' },
+  { id: 'stone', label: 'Stone Setting', icon: '\u2666' },
+  { id: 'clasp', label: 'Clasp', icon: '\u2630' },
+  { id: 'side', label: 'Side Profile', icon: '\u2194' },
+] as const;
+
+type HotspotId = typeof HOTSPOTS[number]['id'];
 
 export default function ProductScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -17,8 +36,15 @@ export default function ProductScreen() {
   const { toggle, has } = useWishlist();
   const [snap, setSnap] = useState<RateSnapshot | null>(null);
   const [imgError, setImgError] = useState(false);
+  const [selectedVariant, setSelectedVariant] = useState<MaterialVariant | null>(null);
+  const [selectedKarat, setSelectedKarat] = useState<18 | 22>(22);
+  const [activeHotspot, setActiveHotspot] = useState<HotspotId | null>(null);
+  const [viewerLoaded, setViewerLoaded] = useState(false);
+  const [viewerError, setViewerError] = useState(false);
 
   const product = id ? getById(id) : undefined;
+  const has3D = product ? is3DEnabled(product) : false;
+  const show3D = has3D && ViewerComponent && !viewerError;
 
   useEffect(() => {
     let cancelled = false;
@@ -27,6 +53,29 @@ export default function ProductScreen() {
       .catch(() => {});
     return () => { cancelled = true; };
   }, []);
+
+  // Initialize variant selection from product defaults
+  useEffect(() => {
+    if (product?.threeD?.materialVariants?.length) {
+      setSelectedVariant(product.threeD.materialVariants[0]);
+    }
+    if (product?.threeD?.purityOptions?.length) {
+      const defaultPurity = product.threeD.purityOptions[0];
+      setSelectedKarat(defaultPurity.karat as 18 | 22);
+    }
+  }, [product]);
+
+  // Compute price using shared service
+  const priceBreakdown = useMemo(() => {
+    if (!product) return null;
+    return estimate3DProduct(product, selectedKarat, snap);
+  }, [product, selectedKarat, snap]);
+
+  // Legacy estimate for 2D products
+  const legacyEstimate =
+    product?.weight && snap
+      ? Math.round((product.weight * snap.published.rate22kt) / 10)
+      : null;
 
   if (!product) {
     return (
@@ -46,23 +95,50 @@ export default function ProductScreen() {
   const similar = byCategory(product.category)
     .filter((p) => p.id !== product.id)
     .slice(0, 8);
-  const estimate =
-    product.weight && snap
-      ? Math.round((product.weight * snap.published.rate22kt) / 10)
-      : null;
   const wish = has(product.id);
 
+  const buildWhatsAppMessage = () => {
+    const parts = [
+      `Namaste ${MASTER.displayName}`,
+      '',
+      `I am interested in:`,
+      `\u2022 Product: ${product.categoryName} (${product.label})`,
+      `\u2022 Product ID: ${product.id}`,
+    ];
+
+    if (selectedVariant) {
+      parts.push(`\u2022 Metal: ${selectedVariant.label}`);
+    }
+    if (selectedKarat) {
+      parts.push(`\u2022 Purity: ${selectedKarat}K`);
+    }
+    if (product.threeD?.totalWeight) {
+      parts.push(`\u2022 Weight: ${product.threeD.totalWeight}g`);
+    }
+    if (priceBreakdown) {
+      parts.push(`\u2022 Estimated metal value: \u20B9${formatInr(priceBreakdown.metalValue)} (excl. making/stone/GST)`);
+    }
+
+    parts.push('', 'Please share details and availability.');
+
+    return parts.join('\n');
+  };
+
   const enquire = () => {
-    const text = encodeURIComponent(
-      `Namaste ${MASTER.displayName}, I am interested in ${product.categoryName} (${product.label}). Please share details.`,
-    );
+    const text = encodeURIComponent(buildWhatsAppMessage());
     Linking.openURL(`${MASTER.whatsapp}?text=${text}`);
   };
 
   const share = () => {
-    void Share.share({
-      message: `${product.categoryName} \u2014 ${product.label}\nFrom ${MASTER.displayName}, Boisar\nView similar designs in the Aradhana Jewellers app.`,
-    });
+    const msg = [
+      `${product.categoryName} \u2014 ${product.label}`,
+      `From ${MASTER.displayName}, Boisar`,
+      selectedVariant ? `Metal: ${selectedVariant.label}` : '',
+      product.threeD?.totalWeight ? `Weight: ${product.threeD.totalWeight}g` : '',
+      '',
+      'View in the Aradhana Jewellers app.',
+    ].filter(Boolean).join('\n');
+    void Share.share({ message: msg });
   };
 
   return (
@@ -80,18 +156,51 @@ export default function ProductScreen() {
         </View>
 
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-          {/* Product Image */}
-          <View style={[styles.imageCard, Shadow.md]}>
-            {img && !imgError ? (
-              <Image source={img} style={styles.image} resizeMode="contain" onError={() => setImgError(true)} />
-            ) : (
-              <View style={styles.imagePlaceholder}>
-                <ThemedText style={styles.imagePlaceholderText}>Photo coming soon</ThemedText>
+          {/* ── 3D Viewer or 2D Image ── */}
+          {show3D && ViewerComponent ? (
+            <View style={[styles.viewerCard, Shadow.md]}>
+              <ViewerComponent
+                product={product}
+                activeVariant={selectedVariant}
+                onLoaded={() => setViewerLoaded(true)}
+                onError={() => setViewerError(true)}
+              />
+              {/* Inspect Mode Bar */}
+              <View style={styles.inspectBar}>
+                <ThemedText style={styles.inspectLabel}>Inspect Craftsmanship</ThemedText>
+                <View style={styles.hotspotRow}>
+                  {HOTSPOTS.map((h) => (
+                    <Pressable
+                      key={h.id}
+                      onPress={() => setActiveHotspot(activeHotspot === h.id ? null : h.id)}
+                      style={[
+                        styles.hotspotBtn,
+                        activeHotspot === h.id && styles.hotspotBtnActive,
+                      ]}
+                      accessibilityLabel={h.label}>
+                      <ThemedText style={styles.hotspotIcon}>{h.icon}</ThemedText>
+                      <ThemedText style={[
+                        styles.hotspotLabel,
+                        activeHotspot === h.id && styles.hotspotLabelActive,
+                      ]}>{h.label}</ThemedText>
+                    </Pressable>
+                  ))}
+                </View>
               </View>
-            )}
-          </View>
+            </View>
+          ) : (
+            <View style={[styles.imageCard, Shadow.md]}>
+              {img && !imgError ? (
+                <Image source={img} style={styles.image} resizeMode="contain" onError={() => setImgError(true)} />
+              ) : (
+                <View style={styles.imagePlaceholder}>
+                  <ThemedText style={styles.imagePlaceholderText}>Photo coming soon</ThemedText>
+                </View>
+              )}
+            </View>
+          )}
 
-          {/* Product Info */}
+          {/* ── Product Info ── */}
           <View style={styles.infoSection}>
             <View style={styles.infoTop}>
               <View style={{ flex: 1 }}>
@@ -105,25 +214,107 @@ export default function ProductScreen() {
 
             {/* Tags */}
             <View style={styles.tagRow}>
-              {product.karat && (
+              {(selectedKarat || product.karat) && (
                 <View style={styles.tag}>
-                  <ThemedText style={styles.tagText}>{product.karat}K Gold</ThemedText>
+                  <ThemedText style={styles.tagText}>{selectedKarat || product.karat}K Gold</ThemedText>
                 </View>
               )}
-              {product.weight && (
+              {(product.threeD?.totalWeight || product.weight) && (
                 <View style={styles.tag}>
-                  <ThemedText style={styles.tagText}>{product.weight.toFixed(2)}g</ThemedText>
+                  <ThemedText style={styles.tagText}>{(product.threeD?.totalWeight ?? product.weight)?.toFixed(2)}g</ThemedText>
                 </View>
               )}
               <View style={[styles.tag, styles.tagHallmark]}>
-                <ThemedText style={[styles.tagText, styles.tagHallmarkText]}>916 Hallmarked</ThemedText>
+                <ThemedText style={[styles.tagText, styles.tagHallmarkText]}>
+                  {selectedKarat === 18 ? '750' : '916'} Hallmarked
+                </ThemedText>
               </View>
+              {has3D && (
+                <View style={[styles.tag, styles.tag3D]}>
+                  <ThemedText style={[styles.tagText, styles.tag3DText]}>3D Interactive</ThemedText>
+                </View>
+              )}
             </View>
           </View>
 
-          {/* Price Card */}
+          {/* ── Material/Purity Switcher (3D products only) ── */}
+          {has3D && product.threeD && (
+            <View style={styles.switcherSection}>
+              {/* Material Variants */}
+              {product.threeD.materialVariants.length > 1 && (
+                <View style={styles.switcherGroup}>
+                  <ThemedText style={styles.switcherLabel}>Metal Colour</ThemedText>
+                  <View style={styles.switcherRow}>
+                    {product.threeD.materialVariants.map((v) => (
+                      <Pressable
+                        key={v.id}
+                        onPress={() => setSelectedVariant(v)}
+                        style={[
+                          styles.switcherChip,
+                          selectedVariant?.id === v.id && styles.switcherChipActive,
+                        ]}
+                        accessibilityLabel={v.label}>
+                        <View style={[styles.colorDot, { backgroundColor: v.hexAccent || '#D4A843' }]} />
+                        <ThemedText style={[
+                          styles.switcherChipText,
+                          selectedVariant?.id === v.id && styles.switcherChipTextActive,
+                        ]}>{v.label}</ThemedText>
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
+              )}
+
+              {/* Purity Options */}
+              {product.threeD.purityOptions.length > 1 && (
+                <View style={styles.switcherGroup}>
+                  <ThemedText style={styles.switcherLabel}>Gold Purity</ThemedText>
+                  <View style={styles.switcherRow}>
+                    {product.threeD.purityOptions.map((p) => (
+                      <Pressable
+                        key={p.karat}
+                        onPress={() => setSelectedKarat(p.karat as 18 | 22)}
+                        style={[
+                          styles.switcherChip,
+                          selectedKarat === p.karat && styles.switcherChipActive,
+                        ]}
+                        accessibilityLabel={p.label}>
+                        <ThemedText style={[
+                          styles.switcherChipText,
+                          selectedKarat === p.karat && styles.switcherChipTextActive,
+                        ]}>{p.label}</ThemedText>
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
+              )}
+            </View>
+          )}
+
+          {/* ── Price Card ── */}
           <View style={[styles.priceCard, Shadow.sm]}>
-            {estimate !== null ? (
+            {has3D && priceBreakdown ? (
+              <>
+                <View style={styles.priceHeader}>
+                  <ThemedText style={styles.priceLabel}>Estimated Metal Value</ThemedText>
+                  <View style={styles.priceLiveTag}>
+                    <View style={styles.priceLiveDot} />
+                    <ThemedText style={styles.priceLiveText}>LIVE RATE</ThemedText>
+                  </View>
+                </View>
+                <ThemedText style={styles.priceValue}>{'\u20B9'} {formatInr(priceBreakdown.metalValue)}</ThemedText>
+                <ThemedText style={styles.priceCalc}>
+                  {priceBreakdown.weight}g \u00D7 {'\u20B9'}{formatInr(priceBreakdown.ratePer10g)}/10g ({priceBreakdown.karatLabel})
+                </ThemedText>
+                {snap && (
+                  <ThemedText style={styles.priceMeta}>
+                    Based on today{'\u2019'}s rate \u00B7 Updated {snap.published.atIst} IST
+                  </ThemedText>
+                )}
+                <View style={styles.priceDivider} />
+                <ThemedText style={styles.priceDisclaimer}>{priceBreakdown.disclaimer}</ThemedText>
+              </>
+            ) : legacyEstimate !== null ? (
               <>
                 <View style={styles.priceHeader}>
                   <ThemedText style={styles.priceLabel}>Estimated Value</ThemedText>
@@ -132,7 +323,7 @@ export default function ProductScreen() {
                     <ThemedText style={styles.priceLiveText}>LIVE RATE</ThemedText>
                   </View>
                 </View>
-                <ThemedText style={styles.priceValue}>{'\u20B9'} {formatInr(estimate)}</ThemedText>
+                <ThemedText style={styles.priceValue}>{'\u20B9'} {formatInr(legacyEstimate)}</ThemedText>
                 <ThemedText style={styles.priceCalc}>
                   {product.weight}g \u00D7 {'\u20B9'}{formatInr(snap?.published.rate22kt ?? 0)}/10g
                 </ThemedText>
@@ -156,7 +347,7 @@ export default function ProductScreen() {
             )}
           </View>
 
-          {/* Action Buttons */}
+          {/* ── Action Buttons ── */}
           <View style={styles.actionRow}>
             <Pressable onPress={enquire} style={[styles.actionBtnPrimary, Shadow.sm]} accessibilityLabel="Ask about this design">
               <ThemedText style={styles.actionBtnPrimaryIcon}>{'\u2709'}</ThemedText>
@@ -172,16 +363,13 @@ export default function ProductScreen() {
               <ThemedText style={styles.actionBtnSecondaryIcon}>{'\u25CE'}</ThemedText>
               <ThemedText style={styles.actionBtnSecondaryText}>View Similar</ThemedText>
             </Pressable>
-            <Pressable
-              onPress={() => router.push('/store')}
-              style={[styles.actionBtnSecondary]}
-              accessibilityLabel="Visit Store">
+            <Pressable onPress={() => router.push('/store')} style={[styles.actionBtnSecondary]} accessibilityLabel="Visit Store">
               <ThemedText style={styles.actionBtnSecondaryIcon}>{'\u2302'}</ThemedText>
               <ThemedText style={styles.actionBtnSecondaryText}>Visit Store</ThemedText>
             </Pressable>
           </View>
 
-          {/* WhatsApp CTA */}
+          {/* ── WhatsApp CTA ── */}
           <Pressable onPress={enquire} accessibilityLabel="Enquire on WhatsApp">
             <View style={[styles.ctaWhatsApp, Shadow.sm]}>
               <ThemedText style={styles.ctaWhatsAppText}>
@@ -190,7 +378,23 @@ export default function ProductScreen() {
             </View>
           </Pressable>
 
-          {/* View Similar */}
+          {/* ── Stones Detail (3D products) ── */}
+          {has3D && product.threeD && product.threeD.stones.length > 0 && (
+            <View style={styles.stonesCard}>
+              <ThemedText style={styles.stonesTitle}>Stone Details</ThemedText>
+              {product.threeD.stones.map((s, i) => (
+                <View key={i} style={styles.stoneRow}>
+                  <ThemedText style={styles.stoneType}>{s.type}</ThemedText>
+                  <ThemedText style={styles.stoneDetail}>
+                    {s.count} \u00D7 {s.totalCaratWeight}ct
+                    {s.clarity ? ` (${s.clarity})` : ''} \u2022 {s.setting} setting
+                  </ThemedText>
+                </View>
+              ))}
+            </View>
+          )}
+
+          {/* ── View Similar ── */}
           {similar.length > 0 && (
             <>
               <View style={styles.similarHeader}>
@@ -227,10 +431,10 @@ export default function ProductScreen() {
             </>
           )}
 
-          {/* Disclaimer */}
+          {/* ── Disclaimer ── */}
           <View style={styles.disclaimer}>
             <ThemedText style={styles.disclaimerText}>
-              Hallmarked 916 jewellery. Final price depends on the prevailing rate at the time of billing, plus GST and making charges where applicable.
+              Hallmarked jewellery. Final price depends on the prevailing rate at the time of billing, plus GST and making charges where applicable.
             </ThemedText>
           </View>
         </ScrollView>
@@ -246,37 +450,39 @@ const styles = StyleSheet.create({
 
   /* Header */
   headerBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#F0ECE4',
+    flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16,
+    paddingVertical: 10, backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1, borderBottomColor: '#F0ECE4',
   },
-  headerBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#F8F6F3',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  headerBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#F8F6F3', alignItems: 'center', justifyContent: 'center' },
   headerBtnText: { fontSize: 18, color: '#1A1A2E' },
   headerTitle: { flex: 1, fontSize: 16, fontWeight: '600', color: '#1A1A2E', textAlign: 'center', marginHorizontal: 8 },
 
   /* Content */
   content: { gap: 16, paddingBottom: Spacing.six },
 
-  /* Image */
+  /* 3D Viewer */
+  viewerCard: {
+    marginHorizontal: 16, borderRadius: BorderRadius.xl,
+    overflow: 'hidden', backgroundColor: '#FFFFFF',
+    borderWidth: 1, borderColor: '#E5E1D8',
+  },
+  inspectBar: { padding: 12, borderTopWidth: 1, borderTopColor: '#F0ECE4' },
+  inspectLabel: { fontSize: 11, fontWeight: '700', color: '#6B7280', letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 8 },
+  hotspotRow: { flexDirection: 'row', gap: 8 },
+  hotspotBtn: {
+    flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: 8,
+    backgroundColor: '#F8F6F3', borderWidth: 1, borderColor: '#E5E1D8',
+  },
+  hotspotBtnActive: { backgroundColor: '#23519D', borderColor: '#23519D' },
+  hotspotIcon: { fontSize: 16, marginBottom: 2 },
+  hotspotLabel: { fontSize: 9, color: '#6B7280', fontWeight: '600' },
+  hotspotLabelActive: { color: '#FFFFFF' },
+
+  /* 2D Image */
   imageCard: {
-    marginHorizontal: 16,
-    borderRadius: BorderRadius.xl,
-    aspectRatio: 1,
-    overflow: 'hidden',
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E5E1D8',
+    marginHorizontal: 16, borderRadius: BorderRadius.xl, aspectRatio: 1,
+    overflow: 'hidden', backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E5E1D8',
   },
   image: { width: '100%', height: '100%' },
   imagePlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center' },
@@ -287,40 +493,35 @@ const styles = StyleSheet.create({
   infoTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   productCategory: { fontSize: 22, fontWeight: '700', color: '#1A1A2E', letterSpacing: -0.3 },
   productLabel: { fontSize: 13, color: '#6B7280', marginTop: 2 },
-  heartBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#F8F6F3',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#E5E1D8',
-  },
+  heartBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#F8F6F3', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#E5E1D8' },
   heartBtnActive: { backgroundColor: '#FEF2F2', borderColor: '#FECACA' },
   heartIcon: { fontSize: 22, color: '#9CA3AF' },
   heartIconActive: { color: '#DC2626' },
   tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  tag: {
-    backgroundColor: '#F8F6F3',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderWidth: 1,
-    borderColor: '#E5E1D8',
-  },
+  tag: { backgroundColor: '#F8F6F3', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1, borderColor: '#E5E1D8' },
   tagText: { fontSize: 11, fontWeight: '600', color: '#1A1A2E' },
   tagHallmark: { backgroundColor: '#FDF8ED', borderColor: '#E8D9A8' },
   tagHallmarkText: { color: '#A68523' },
+  tag3D: { backgroundColor: '#EEF2FF', borderColor: '#C7D2FE' },
+  tag3DText: { color: '#4338CA' },
+
+  /* Switcher */
+  switcherSection: { marginHorizontal: 16, gap: 12 },
+  switcherGroup: { gap: 6 },
+  switcherLabel: { fontSize: 11, fontWeight: '700', color: '#6B7280', letterSpacing: 0.5, textTransform: 'uppercase' },
+  switcherRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  switcherChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10,
+    backgroundColor: '#FFFFFF', borderWidth: 1.5, borderColor: '#E5E1D8',
+  },
+  switcherChipActive: { borderColor: '#23519D', backgroundColor: '#EEF2FF' },
+  colorDot: { width: 12, height: 12, borderRadius: 6 },
+  switcherChipText: { fontSize: 12, fontWeight: '500', color: '#6B7280' },
+  switcherChipTextActive: { color: '#23519D', fontWeight: '700' },
 
   /* Price Card */
-  priceCard: {
-    marginHorizontal: 16,
-    backgroundColor: '#23519D',
-    borderRadius: BorderRadius.xl,
-    padding: 20,
-    gap: 4,
-  },
+  priceCard: { marginHorizontal: 16, backgroundColor: '#23519D', borderRadius: BorderRadius.xl, padding: 20, gap: 4 },
   priceHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
   priceLabel: { color: '#C9A84C', fontSize: 11, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase' },
   priceLiveTag: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(22,163,74,0.2)', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
@@ -334,70 +535,38 @@ const styles = StyleSheet.create({
 
   /* Actions */
   actionRow: { marginHorizontal: 16, gap: 10 },
-  actionBtnPrimary: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: '#23519D',
-    borderRadius: BorderRadius.md,
-    paddingVertical: 14,
-  },
+  actionBtnPrimary: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#23519D', borderRadius: BorderRadius.md, paddingVertical: 14 },
   actionBtnPrimaryIcon: { fontSize: 16, color: '#FFFFFF' },
   actionBtnPrimaryText: { fontSize: 15, fontWeight: '700', color: '#FFFFFF' },
   actionRowSecondary: { marginHorizontal: 16, flexDirection: 'row', gap: 10 },
-  actionBtnSecondary: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    backgroundColor: '#FFFFFF',
-    borderRadius: BorderRadius.md,
-    paddingVertical: 12,
-    borderWidth: 1,
-    borderColor: '#E5E1D8',
-  },
+  actionBtnSecondary: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: '#FFFFFF', borderRadius: BorderRadius.md, paddingVertical: 12, borderWidth: 1, borderColor: '#E5E1D8' },
   actionBtnSecondaryIcon: { fontSize: 14, color: '#1A1A2E' },
   actionBtnSecondaryText: { fontSize: 12, fontWeight: '600', color: '#1A1A2E' },
 
   /* WhatsApp CTA */
-  ctaWhatsApp: {
-    marginHorizontal: 16,
-    alignItems: 'center',
-    backgroundColor: '#16A34A',
-    borderRadius: BorderRadius.md,
-    paddingVertical: 14,
-  },
+  ctaWhatsApp: { marginHorizontal: 16, alignItems: 'center', backgroundColor: '#16A34A', borderRadius: BorderRadius.md, paddingVertical: 14 },
   ctaWhatsAppText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
+
+  /* Stones */
+  stonesCard: { marginHorizontal: 16, backgroundColor: '#FFFFFF', borderRadius: BorderRadius.lg, padding: 16, borderWidth: 1, borderColor: '#E5E1D8', gap: 8 },
+  stonesTitle: { fontSize: 14, fontWeight: '700', color: '#1A1A2E' },
+  stoneRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  stoneType: { fontSize: 13, fontWeight: '600', color: '#1A1A2E', textTransform: 'capitalize' },
+  stoneDetail: { fontSize: 12, color: '#6B7280' },
 
   /* Similar */
   similarHeader: { marginHorizontal: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   similarTitle: { fontSize: 18, fontWeight: '700', color: '#1A1A2E' },
   similarCount: { fontSize: 12, color: '#9CA3AF' },
   similarRow: { paddingHorizontal: 16, gap: 12, paddingBottom: 4 },
-  similarCard: {
-    width: 120,
-    backgroundColor: '#FFFFFF',
-    borderRadius: BorderRadius.lg,
-    borderWidth: 1,
-    borderColor: '#E5E1D8',
-    overflow: 'hidden',
-  },
+  similarCard: { width: 120, backgroundColor: '#FFFFFF', borderRadius: BorderRadius.lg, borderWidth: 1, borderColor: '#E5E1D8', overflow: 'hidden' },
   similarImg: { width: 120, height: 120 },
   similarInfo: { padding: 8, gap: 2 },
   similarLabel: { fontSize: 11, color: '#1A1A2E', fontWeight: '500' },
   similarAsk: { fontSize: 11, fontWeight: '700', color: '#23519D' },
 
   /* Disclaimer */
-  disclaimer: {
-    marginHorizontal: 16,
-    backgroundColor: '#F8F6F3',
-    borderRadius: BorderRadius.md,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: '#E5E1D8',
-  },
+  disclaimer: { marginHorizontal: 16, backgroundColor: '#F8F6F3', borderRadius: BorderRadius.md, padding: 14, borderWidth: 1, borderColor: '#E5E1D8' },
   disclaimerText: { fontSize: 11, color: '#6B7280', lineHeight: 16 },
 
   /* Not Found */

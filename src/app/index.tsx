@@ -20,7 +20,7 @@ import { ThemedView } from '@/components/themed-view';
 import { Spacing, BorderRadius, Shadow } from '@/constants/theme';
 import { useLiveRates } from '@/hooks/use-live-rates';
 import { formatInr } from '@/services/rates';
-import { byCategory, categories, imageFor, products } from '@/services/products';
+import { byCategory, categories, imageFor, products, heroProducts, is3DEnabled, getById } from '@/services/products';
 import { MASTER, MAPS_URL } from '@/config/master';
 import { useCart } from '@/store/cart';
 import { useLang, type Lang } from '@/store/lang';
@@ -132,6 +132,14 @@ export default function HomeScreen() {
     { key: 'best_sellers', name: 'Best Sellers', img: require('@/assets/aradhana/hero3_rates.jpg') },
   ];
 
+  const jewelleryWorlds = [
+    { id: 'bridal', name: 'Bridal World', desc: 'Complete bridal sets crafted for your most precious moments', heroId: 'HERO-SET-001', gradient: ['#FDF8ED', '#E8D9A8'] },
+    { id: 'everyday', name: 'Everyday Gold', desc: 'Elegant daily wear that moves with your life', heroId: 'HERO-BGL-001', gradient: ['#FFFBF5', '#F0ECE4'] },
+    { id: 'rings', name: 'Statement Rings', desc: 'Bold designs that speak without words', heroId: 'HERO-RING-003', gradient: ['#EEF2FF', '#C7D2FE'] },
+    { id: 'gifting', name: 'Gifting', desc: 'Precious moments, perfectly wrapped', heroId: 'HERO-PEND-001', gradient: ['#FEF2F2', '#FECACA'] },
+    { id: 'heritage', name: 'Heritage', desc: 'Timeless designs rooted in tradition', heroId: 'HERO-EARR-001', gradient: ['#FDF8ED', '#E8D9A8'] },
+  ];
+
   const cycleLang = () => {
     const idx = LANG_CYCLE.indexOf(lang);
     setLang(LANG_CYCLE[(idx + 1) % LANG_CYCLE.length]);
@@ -175,6 +183,34 @@ export default function HomeScreen() {
 
           {/* Hero Slider */}
           <HeroSlider />
+
+          {/* Jewellery Worlds */}
+          <SectionHeader title="Jewellery Worlds" subtitle="Explore curated collections in 3D" />
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.worldsContent}>
+            {jewelleryWorlds.map((world) => {
+              const worldProduct = heroProducts().find(p => p.id === world.heroId);
+              return (
+                <Pressable
+                  key={world.id}
+                  onPress={() => router.navigate(`/product/${world.heroId}`)}
+                  style={[styles.worldCard, { backgroundColor: world.gradient[0] }, Shadow.sm]}
+                  accessibilityLabel={world.name}>
+                  <View style={styles.worldInfo}>
+                    <ThemedText style={styles.worldName}>{world.name}</ThemedText>
+                    <ThemedText style={styles.worldDesc} numberOfLines={2}>{world.desc}</ThemedText>
+                    {worldProduct && (
+                      <View style={styles.worldTag}>
+                        <ThemedText style={styles.worldTagText}>3D Interactive</ThemedText>
+                      </View>
+                    )}
+                  </View>
+                  <View style={styles.worldCta}>
+                    <ThemedText style={styles.worldCtaText}>Explore {'\u203A'}</ThemedText>
+                  </View>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
 
           {/* Live Rate Card */}
           {snap ? (
@@ -323,6 +359,21 @@ const styles = StyleSheet.create({
   cartBadge: { position: 'absolute', top: -2, right: -2, backgroundColor: '#C9A84C', borderRadius: 8, minWidth: 16, height: 16, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
   cartBadgeText: { color: '#1A1A2E', fontSize: 9, fontWeight: '700' },
   content: { paddingBottom: Spacing.six, gap: 20, paddingTop: 14 },
+
+  /* Jewellery Worlds */
+  worldsContent: { paddingHorizontal: PAD, gap: 12 },
+  worldCard: {
+    width: 200, borderRadius: BorderRadius.xl, padding: 16,
+    borderWidth: 1, borderColor: '#E5E1D8', justifyContent: 'space-between',
+    minHeight: 140,
+  },
+  worldInfo: { gap: 6 },
+  worldName: { fontSize: 16, fontWeight: '700', color: '#1A1A2E', letterSpacing: -0.3 },
+  worldDesc: { fontSize: 12, color: '#6B7280', lineHeight: 16 },
+  worldTag: { alignSelf: 'flex-start', backgroundColor: 'rgba(35,81,157,0.1)', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, marginTop: 4 },
+  worldTagText: { fontSize: 9, fontWeight: '700', color: '#23519D', letterSpacing: 0.5 },
+  worldCta: { marginTop: 8 },
+  worldCtaText: { fontSize: 13, fontWeight: '700', color: '#23519D' },
 
   /* 3D Category Carousel */
   categoriesWrap: { paddingVertical: 4 },

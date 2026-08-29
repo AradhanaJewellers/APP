@@ -19,6 +19,7 @@ const { GLTFLoader } = require('three/examples/jsm/loaders/GLTFLoader');
 const { OrbitControls } = require('three/examples/jsm/controls/OrbitControls');
 
 import type { Product, MaterialVariant, CameraPreset } from '@/services/products';
+import { analytics } from '@/services/analytics';
 
 // Three.js mutates a global instance — required for expo-three
 (globalThis as any).THREE = (globalThis as any).THREE || THREE;
@@ -56,6 +57,14 @@ export default function JewelleryViewer({
 
   const config = product.threeD;
   const glbUrl = activeVariant?.glbUrl ?? config?.glbUrl ?? null;
+  const has3D = config !== null && glbUrl !== null;
+
+  // Track 3D view started
+  useEffect(() => {
+    if (has3D && glbUrl) {
+      analytics.track('3d_view_started', { productId: product.id, variant: activeVariant?.id });
+    }
+  }, [product.id, activeVariant?.id]);
 
   const resetCamera = useCallback(() => {
     const s = sceneRef.current;
@@ -195,6 +204,7 @@ export default function JewelleryViewer({
             };
             setState('ready');
             onLoaded?.();
+            analytics.track('3d_view_loaded', { productId: product.id, variant: activeVariant?.id });
           },
           undefined,
           (err: unknown) => {
@@ -203,6 +213,7 @@ export default function JewelleryViewer({
             setErrorMsg(error.message);
             setState('error');
             onError?.(error);
+            analytics.track('3d_view_failed', { productId: product.id, error: error.message });
           },
         );
       }
@@ -269,6 +280,7 @@ export default function JewelleryViewer({
   // ── Variant switch ──
   useEffect(() => {
     if (!activeVariant || !sceneRef.current) return;
+    analytics.track('variant_changed', { productId: product.id, variant: activeVariant.id });
     const s = sceneRef.current;
     const loader = new GLTFLoader();
     loader.load(activeVariant.glbUrl, (gltf: any) => {
