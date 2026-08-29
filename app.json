@@ -12,7 +12,7 @@
     },
     "android": {
       "package": "com.aradhanajewellers.app",
-      "versionCode": 4,
+      "versionCode": 5,
       "adaptiveIcon": {
         "backgroundColor": "#23519D",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
