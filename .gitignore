@@ -41,3 +41,10 @@ example
 # generated native folders
 /ios
 /android
+
+# screenshots
+screenshot_*.png
+s_*.png
+
+# environment
+.local.env
